@@ -1,0 +1,124 @@
+---
+title: "HW3"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## HW 3: Sampling and online data
+*Note: June 7*
+
+**First problem, required**
+Take at look at data from the HIV Transmission Network Metastudy Project, available from [ICPSR](https://www.icpsr.umich.edu/icpsrweb/NAHDAP/studies/22140#).  We'll use data from the Egodyads file, which represents the connections between individuals.  
+
+1. Choose one of the networks.  Repeat the following (steps 1-3) five times:
+  + Take a sample (say 20\%) of the nodes in the network.  
+  + Fit *latentnet* to the 20\% sample.  Use the parameters from the model fit using *latentnet*.
+  
+  
+  
+2. Fill in the following table using the observed subgraphs.  Also add some statistics of your own.
+```{r message=F }
+library(readr)
+library(network)
+library(igraph)
+library(latentnet)
+data=read.table(file = '/Users/Mengjie/Downloads/DS0002/22140-0002-Data.tsv', sep = '\t', header = TRUE,fill=TRUE)
+data_Flagstaff <-subset(data, STUDYNUM==4)
+data_Flagstaff <- subset(data_Flagstaff,select=c("ID1","ID2","RACE1","RACE2","AGE1","AGE2","TIETYPE"))
+data_Flagstaff=data_Flagstaff[!duplicated(data_Flagstaff[c("ID1","ID2")]), ]
+g_Flagstaff <- graph_from_data_frame(data_Flagstaff[c("ID1","ID2")],directed = F)
+network_Flagstaff <- network(x = get.edgelist(g_Flagstaff), matrix.type="edgelist", directed=FALSE)
+
+IDs=as.numeric(network.vertex.names(network_Flagstaff))
+race=numeric(length(IDs))
+age=numeric(length(IDs))
+for (i in 1:length(IDs)){
+  if (IDs[i]%in% data_Flagstaff$ID1){
+    race[i]=data_Flagstaff$RACE1[i]
+    age[i]=data_Flagstaff$AGE1[i]
+  }else{
+    race[i]=data_Flagstaff$RACE2[i]
+    age[i]=data_Flagstaff$AGE2[i]
+  }
+}
+
+network::set.vertex.attribute(network_Flagstaff, "Race", race) 
+network::set.vertex.attribute(network_Flagstaff, "Age", age) 
+```
+
+
+```{r message=F , cache=T}
+subset_g_list=list()
+model_fit_list=list()
+for (i in 1:5){
+  subset_g=induced.subgraph(g_Flagstaff, sample(V(g_Flagstaff), 0.2*length(V(g_Flagstaff))))
+  subset_g_list=c(subset_g_list,list(subset_g))
+  subset_g_network <- network(x = get.edgelist(subset_g), matrix.type="edgelist", directed=FALSE)
+  model_fit = ergmm(subset_g_network~euclidean(d=2,G=2))
+  model_fit_list=c(model_fit_list,list(model_fit))
+}
+
+```
+
+| Network/statistic |  Clustering coeff  |  Avg Degree |   |   |
+|---|---|---|---|---|
+| Full graph  | `r transitivity(g_Flagstaff)` |   `r edge_density(g_Flagstaff)`|   |   |
+| Sample 1  | `r transitivity(subset_g_list[[1]])`  | `r edge_density(subset_g_list[[1]])`  |   |   |
+| Sample 2  | `r transitivity(subset_g_list[[2]])`  | `r edge_density(subset_g_list[[2]])`  |   |   |
+| Sample 3  | `r transitivity(subset_g_list[[3]])` |  `r edge_density(subset_g_list[[3]])` |   |   |
+| Sample 4  |  `r transitivity(subset_g_list[[4]])` |  `r edge_density(subset_g_list[[4]])` |   |   |
+| Sample 5  |  `r transitivity(subset_g_list[[5]])` |   `r edge_density(subset_g_list[[5]])`|   |   |
+
+3. Fill in the following table using the average statistics from your simulated graphs using the fit from *latentnet*.  Also add some statistics of your own.
+
+```{r, message=F}
+g_simulated_igraph_list=list()
+for (i in 1:5){
+  g_simulated <- simulate(model_fit_list[[i]])
+  g_simulated_igraph <- graph_from_adjacency_matrix(as.matrix(g_simulated))
+  g_simulated_igraph_list=c(g_simulated_igraph_list,list(g_simulated_igraph))
+}
+  
+```
+
+
+| Network/statistic |  Clustering coeff  |  Avg Degree |   |   |
+|---|---|---|---|---|
+| Sample 1  |  `r transitivity(g_simulated_igraph_list[[1]])` |  `r edge_density(g_simulated_igraph_list[[1]])`  |   |   |
+| Sample 2  |   `r transitivity(g_simulated_igraph_list[[2]])` | `r edge_density(g_simulated_igraph_list[[2]])`  |   |   |
+| Sample 3  |   `r transitivity(g_simulated_igraph_list[[3]])` | `r edge_density(g_simulated_igraph_list[[3]])`  |   |   |
+| Sample 4  |   `r transitivity(g_simulated_igraph_list[[4]])` | `r edge_density(g_simulated_igraph_list[[4]])`  |   |   |
+| Sample 5  |   `r transitivity(g_simulated_igraph_list[[5]])` | `r edge_density(g_simulated_igraph_list[[5]])`  |   |   |
+
+4. If computationally feasible, fit a model to the full graph using either *latentnet* or *VBLPCM.*  Simulate several graphs based on the fitted parameters and compute the statistics used in your tables above.  How do they compare? 
+```{r message=F, cache=T}
+library(VBLPCM)
+v.start<-vblpcmstart(network_Flagstaff,G=3,LSTEPS=1e3)
+v.fit<-vblpcmfit(v.start,STEPS=20)
+```
+
+If using VBLPCM, the `gof` function is enough to access how distribution of network statistics on simulated graph compare with observed statistics. If using *latentnet*, then use `simulate` function to simulate graphs and calculate statistics on simulated graphs.
+
+```{r message=F, cache=T}
+gof.vblpcm(v.fit)
+```
+
+5. Repeat 1-3, but this time let's simulate using sampling weights.  Choose an individual-level covariate and over-sample individuals with that covariate in your subgraph.  Do the results change? 
+
+Pick Race as covariate.
+
+```{r}
+n=length(IDs)
+weights=c(0.2,0.5,0.2,0.1,0)
+weights_normalized=weights*floor(n*0.2)/sum(table(network::get.vertex.attribute(network_Flagstaff,"Race"))*weights)
+sampled_Ids=sample(1:n,size=floor(n*0.2),prob=weights_normalized[network::get.vertex.attribute(network_Flagstaff,"Race")])
+subnetwork_Flagstaff=get.inducedSubgraph(x=network_Flagstaff,v= sampled_Ids)
+```
+
+You may use code in Problem 2&3 for fitting and simulation from *latentnet*.
+
+**Second problem, optional**
+Set up an account with the Twitter API to scrape data from Twitter.  Tutorial [here](https://medium.com/@randerson112358/twitter-mining-with-r-6fef0dd97781).  Once you do that, you can explore sentament and text analysis using the *tm* package.  
